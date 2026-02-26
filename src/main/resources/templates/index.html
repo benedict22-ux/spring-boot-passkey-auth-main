@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>User Dashboard</title>
+    <style>
+        body { font-family: sans-serif; padding: 50px; text-align: center; }
+        .card { border: 1px solid #ddd; padding: 20px; display: inline-block; border-radius: 10px; }
+        .btn-logout { background: #dc3545; color: white; border: none; padding: 10px 20px; cursor: pointer; border-radius: 5px; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h1>Welcome, <span data-th-text="${username}">username></span></h1>
+        <p>Your Passkey registration/login was successful.</p>
+    <a href="/webauthn/register">Register Passkey</a>
+</body>
+</html>
