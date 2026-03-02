@@ -9,6 +9,7 @@ import com.csecurity.passkey.domain.User;
 import com.csecurity.passkey.domain.UserPasskey;
 import com.csecurity.passkey.repository.UserPasskeyRepository;
 import com.csecurity.passkey.repository.UserRepository;
+import com.csecurity.passkey.service.JwtService;
 
 import java.util.*;
 
@@ -20,13 +21,16 @@ public class AppController {
     private final UserPasskeyRepository passkeyRepository;
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
+    private final JwtService jwtService;
 
     public AppController(UserPasskeyRepository passkeyRepository, 
                          UserRepository userRepository, 
-                         PasswordEncoder passwordEncoder) {
+                         PasswordEncoder passwordEncoder,
+                         JwtService jwtService) {
         this.passkeyRepository = passkeyRepository;
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
+        this.jwtService = jwtService;
     }
   
 @PostMapping("/users/register")
@@ -119,6 +123,16 @@ public String ping() {
 
     @PostMapping(path = "/passkey/login/finish")
     public ResponseEntity<Map<String, Object>> loginFinish(@RequestBody Map<String, Object> credential) {
-        return ResponseEntity.ok(Map.of("status", "ok", "message", "User authenticated with Passkey"));
+        String username = (String) credential.get("username");
+
+        Map<String, String> tokens = jwtService.generateTokens(username);
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("status", "ok");
+        response.put("message", "User authenticated");
+        response.put("accessToken", tokens.get("accessToken"));
+        response.put("refreshToken", tokens.get("refreshToken"));
+
+        return ResponseEntity.ok(response);
     }
 }
