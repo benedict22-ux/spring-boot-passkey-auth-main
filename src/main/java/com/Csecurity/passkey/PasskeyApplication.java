@@ -1,4 +1,4 @@
-package com.Csecurity.passkey;
+package com.csecurity.passkey;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;

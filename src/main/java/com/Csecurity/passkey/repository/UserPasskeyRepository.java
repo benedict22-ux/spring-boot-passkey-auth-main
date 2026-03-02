@@ -1,9 +1,11 @@
-package com.Csecurity.passkey.repository;
+package com.csecurity.passkey.repository;
 
-import com.Csecurity.passkey.domain.UserPasskey;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+
+import com.csecurity.passkey.domain.UserPasskey;
+
 import java.util.List;
 import java.util.Optional;
 

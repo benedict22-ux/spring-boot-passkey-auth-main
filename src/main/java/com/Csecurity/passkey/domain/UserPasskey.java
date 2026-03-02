@@ -1,5 +1,5 @@
 
-package com.Csecurity.passkey.domain;
+package com.csecurity.passkey.domain;
 
 import jakarta.persistence.*;
 import java.time.Instant;
