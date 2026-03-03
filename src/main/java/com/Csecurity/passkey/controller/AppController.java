@@ -1,5 +1,6 @@
 package com.csecurity.passkey.controller;
 
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -15,7 +16,8 @@ import java.util.*;
 
 @RestController
 @RequestMapping("/api")
-@CrossOrigin(origins = "http://localhost:4200", allowCredentials = "true")
+// Updated CrossOrigin to explicitly allow headers for JWT verification
+@CrossOrigin(origins = "http://localhost:4200", allowCredentials = "true", allowedHeaders = "*")
 public class AppController {
 
     private final UserPasskeyRepository passkeyRepository;
@@ -32,8 +34,34 @@ public class AppController {
         this.passwordEncoder = passwordEncoder;
         this.jwtService = jwtService;
     }
-  
-@PostMapping("/users/register")
+
+    /**
+     * NEW: SESSION VERIFICATION ENDPOINT
+     * This handles the "Verify Session Access" button from the Angular Dashboard.
+     */
+    @GetMapping("/auth/verify")
+    public ResponseEntity<?> verifySession(@RequestHeader(value = "Authorization", required = false) String authHeader) {
+        if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(Map.of("status", "error", "message", "No token provided"));
+        }
+
+        String token = authHeader.substring(7); // Remove "Bearer " prefix
+        
+        if (jwtService.isTokenValid(token)) {
+            String username = jwtService.extractUsername(token);
+            return ResponseEntity.ok(Map.of(
+                "status", "valid",
+                "user", username,
+                "verifiedAt", new Date().toString()
+            ));
+        } else {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(Map.of("status", "invalid", "message", "Token expired or tampered with"));
+        }
+    }
+
+    @PostMapping("/users/register")
     public ResponseEntity<?> registerAccount(@RequestBody Map<String, String> request) {
         String username = request.get("username");
         String password = request.get("password");
@@ -53,9 +81,9 @@ public class AppController {
     } 
 
     @GetMapping("/ping")
-public String ping() {
-    return "API Working";
-}
+    public String ping() {
+        return "API Working";
+    }
 
     @PostMapping(path = "/passkey/register/start", produces = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<Map<String, Object>> registerStart(@RequestBody Map<String, String> request) {
@@ -81,9 +109,8 @@ public String ping() {
             Map.of("type", "public-key", "alg", -257) // RS256
         ));
 
-        // CRITICAL FIX: Add Authenticator Selection to prevent NotAllowedError
         Map<String, Object> authSelection = new HashMap<>();
-        authSelection.put("authenticatorAttachment", "platform"); // Forces Windows Hello/TouchID
+        authSelection.put("authenticatorAttachment", "platform");
         authSelection.put("userVerification", "required");
         authSelection.put("residentKey", "required");
         options.put("authenticatorSelection", authSelection);
@@ -94,7 +121,6 @@ public String ping() {
 
     @PostMapping(path = "/passkey/register/finish")
     public ResponseEntity<Map<String, Object>> registerFinish(@RequestBody Map<String, Object> credential) {
-        // Ensure username is extracted from the JSON body sent by Angular
         String username = (String) credential.get("username"); 
         
         User dbUser = userRepository.findByUsername(username)

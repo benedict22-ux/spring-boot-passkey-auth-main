@@ -17,6 +17,8 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 import com.csecurity.passkey.service.CustomUserDetailsService;
 
+import jakarta.servlet.http.HttpServletResponse;
+
 import java.util.Arrays;
 import java.util.List;
 
@@ -30,7 +32,7 @@ public class SecurityConfig {
         this.userDetailsService = userDetailsService;
     }
 
-   @Bean
+@Bean
 public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
     http
         .cors(Customizer.withDefaults())
@@ -43,9 +45,18 @@ public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Excepti
                 "/h2-console/**",
                 "/login",
                 "/api/users/register",
-                "/api/passkey/**"
+                "/api/passkey/**",
+                "/api/auth/verify" // Added this to the permit list
             ).permitAll()
             .anyRequest().authenticated()
+        )
+        // Add an Exception Handler to stop the HTML redirect for APIs
+        .exceptionHandling(exception -> exception
+            .authenticationEntryPoint((request, response, authException) -> {
+                response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+                response.setContentType("application/json");
+                response.getWriter().write("{\"error\": \"Unauthorized access\"}");
+            })
         )
         .formLogin(form -> form
             .loginProcessingUrl("/login")
