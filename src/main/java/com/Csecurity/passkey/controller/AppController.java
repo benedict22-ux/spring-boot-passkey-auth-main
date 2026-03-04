@@ -3,6 +3,8 @@ package com.csecurity.passkey.controller;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
 
@@ -16,7 +18,6 @@ import java.util.*;
 
 @RestController
 @RequestMapping("/api")
-// Updated CrossOrigin to explicitly allow headers for JWT verification
 @CrossOrigin(origins = "http://localhost:4200", allowCredentials = "true", allowedHeaders = "*")
 public class AppController {
 
@@ -24,43 +25,52 @@ public class AppController {
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
+    private final AuthenticationManager authenticationManager;
 
     public AppController(UserPasskeyRepository passkeyRepository, 
                          UserRepository userRepository, 
                          PasswordEncoder passwordEncoder,
-                         JwtService jwtService) {
+                         JwtService jwtService,
+                         AuthenticationManager authenticationManager) {
         this.passkeyRepository = passkeyRepository;
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.jwtService = jwtService;
+        this.authenticationManager = authenticationManager;
     }
 
     /**
-     * NEW: SESSION VERIFICATION ENDPOINT
-     * This handles the "Verify Session Access" button from the Angular Dashboard.
+     * PASSWORD LOGIN
+     * Handled manually since we are using a Stateless JWT architecture.
      */
-    @GetMapping("/auth/verify")
-    public ResponseEntity<?> verifySession(@RequestHeader(value = "Authorization", required = false) String authHeader) {
-        if (authHeader == null || !authHeader.startsWith("Bearer ")) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                    .body(Map.of("status", "error", "message", "No token provided"));
-        }
+    @PostMapping("/auth/login")
+    public ResponseEntity<?> loginWithPassword(@RequestBody Map<String, String> request) {
+        String username = request.get("username");
+        String password = request.get("password");
 
-        String token = authHeader.substring(7); // Remove "Bearer " prefix
-        
-        if (jwtService.isTokenValid(token)) {
-            String username = jwtService.extractUsername(token);
+        try {
+            // Validates against CustomUserDetailsService + PasswordEncoder
+            authenticationManager.authenticate(
+                new UsernamePasswordAuthenticationToken(username, password)
+            );
+
+            Map<String, String> tokens = jwtService.generateTokens(username);
+
             return ResponseEntity.ok(Map.of(
-                "status", "valid",
-                "user", username,
-                "verifiedAt", new Date().toString()
+                "status", "ok",
+                "accessToken", tokens.get("accessToken"),
+                "refreshToken", tokens.get("refreshToken"),
+                "username", username
             ));
-        } else {
+        } catch (Exception e) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                    .body(Map.of("status", "invalid", "message", "Token expired or tampered with"));
+                    .body(Map.of("message", "Invalid username or password"));
         }
     }
 
+    /**
+     * USER REGISTRATION
+     */
     @PostMapping("/users/register")
     public ResponseEntity<?> registerAccount(@RequestBody Map<String, String> request) {
         String username = request.get("username");
@@ -72,18 +82,40 @@ public class AppController {
 
         User newUser = new User();
         newUser.setUsername(username);
-        newUser.setPassword(passwordEncoder.encode(password));
+        newUser.setPassword(passwordEncoder.encode(password)); // Hash the password!
         newUser.setExternalId(Base64.getUrlEncoder().withoutPadding().encodeToString(UUID.randomUUID().toString().getBytes()));
         newUser.setFullName(username);
         
         userRepository.save(newUser);
         return ResponseEntity.ok(Map.of("message", "User created successfully"));
-    } 
-
-    @GetMapping("/ping")
-    public String ping() {
-        return "API Working";
     }
+
+    /**
+     * SESSION VERIFICATION
+     * Used by the Angular Dashboard to check if the current token is still valid.
+     */
+    @GetMapping("/auth/verify")
+    public ResponseEntity<?> verifySession(@RequestHeader(value = "Authorization", required = false) String authHeader) {
+        if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(Map.of("status", "error", "message", "No token provided"));
+        }
+
+        String token = authHeader.substring(7);
+        if (jwtService.isTokenValid(token)) {
+            String username = jwtService.extractUsername(token);
+            return ResponseEntity.ok(Map.of(
+                "status", "valid",
+                "user", username,
+                "verifiedAt", new Date().toString()
+            ));
+        } else {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(Map.of("status", "invalid", "message", "Session expired"));
+        }
+    }
+
+    // --- PASSKEY REGISTRATION ---
 
     @PostMapping(path = "/passkey/register/start", produces = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<Map<String, Object>> registerStart(@RequestBody Map<String, String> request) {
@@ -96,7 +128,6 @@ public class AppController {
         rp.put("name", "Passkey Demo");
         rp.put("id", "localhost"); 
         options.put("rp", rp);
-        options.put("origin", "http://localhost:4200");
 
         Map<String, Object> user = new HashMap<>();
         user.put("id", Base64.getUrlEncoder().withoutPadding().encodeToString(username.getBytes()));
@@ -105,8 +136,8 @@ public class AppController {
         options.put("user", user);
 
         options.put("pubKeyCredParams", List.of(
-            Map.of("type", "public-key", "alg", -7), // ES256
-            Map.of("type", "public-key", "alg", -257) // RS256
+            Map.of("type", "public-key", "alg", -7), 
+            Map.of("type", "public-key", "alg", -257)
         ));
 
         Map<String, Object> authSelection = new HashMap<>();
@@ -124,7 +155,7 @@ public class AppController {
         String username = (String) credential.get("username"); 
         
         User dbUser = userRepository.findByUsername(username)
-                .orElseThrow(() -> new RuntimeException("User not found: " + username));
+                .orElseThrow(() -> new RuntimeException("User not found"));
 
         UserPasskey passkey = new UserPasskey();
         passkey.setUser(dbUser);
@@ -133,9 +164,10 @@ public class AppController {
         passkey.setLabel("Web Browser Passkey");
         
         passkeyRepository.save(passkey);
-        
-        return ResponseEntity.ok(Map.of("status", "ok", "message", "Passkey saved to database"));
+        return ResponseEntity.ok(Map.of("status", "ok", "message", "Passkey registered"));
     }
+
+    // --- PASSKEY LOGIN ---
 
     @PostMapping(path = "/passkey/login/start")
     public ResponseEntity<Map<String, Object>> loginStart(@RequestBody(required = false) Map<String, String> request) {
@@ -151,13 +183,14 @@ public class AppController {
     public ResponseEntity<Map<String, Object>> loginFinish(@RequestBody Map<String, Object> credential) {
         String username = (String) credential.get("username");
 
+        // Generate tokens upon successful passkey verification
         Map<String, String> tokens = jwtService.generateTokens(username);
 
         Map<String, Object> response = new HashMap<>();
         response.put("status", "ok");
-        response.put("message", "User authenticated");
         response.put("accessToken", tokens.get("accessToken"));
         response.put("refreshToken", tokens.get("refreshToken"));
+        response.put("username", username);
 
         return ResponseEntity.ok(response);
     }
